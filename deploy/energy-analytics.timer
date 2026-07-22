@@ -1,0 +1,14 @@
+[Unit]
+Description=Energy Analytics – run every 15 minutes
+Requires=energy-analytics.service
+
+[Timer]
+# Run 15 minutes after boot, then every 15 minutes
+OnBootSec=15min
+OnUnitActiveSec=15min
+
+# If a run was missed (e.g. RPi was off), run immediately on next boot
+Persistent=true
+
+[Install]
+WantedBy=timers.target

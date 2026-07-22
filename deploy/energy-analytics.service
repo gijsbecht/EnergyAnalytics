@@ -1,0 +1,28 @@
+[Unit]
+Description=Energy Analytics – collect P1 meter reading
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/EnergyAnalytics
+
+# Environment variables – edit these for your setup
+Environment="HOMEWIZARD_HOST=192.168.1.x"
+Environment="HOMEWIZARD_DEVICE_ID=p1-meter-01"
+Environment="DB_PATH=/home/pi/energy.db"
+
+ExecStart=/home/pi/EnergyAnalytics/.venv/bin/python -m src.main
+
+# Logging goes to systemd journal (view with: journalctl -u energy-analytics.service)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=energy-analytics
+
+# Restart on failure, with a short delay
+Restart=on-failure
+RestartSec=30s
+
+[Install]
+WantedBy=multi-user.target
