@@ -9,7 +9,7 @@ class EnergyReading(BaseModel):
     source_id: str
     device_id: str
     timestamp: datetime
-    active_power_w: float = Field(ge=0, description="Active power in watts")
+    active_power_w: float = Field(description="Active power in watts")
 
 
 class P1Reading(EnergyReading):
@@ -22,20 +22,20 @@ class P1Reading(EnergyReading):
     source_id: str = "homewizard_p1"
 
     # Voltage per phase (single-phase: one value; three-phase: three values)
-    voltage_l1_v: float | None = Field(default=None, ge=0, le=300)
-    voltage_l2_v: float | None = Field(default=None, ge=0, le=300)
-    voltage_l3_v: float | None = Field(default=None, ge=0, le=300)
+    voltage_l1_v: float | None = Field(default=None)
+    voltage_l2_v: float | None = Field(default=None)
+    voltage_l3_v: float | None = Field(default=None)
 
     # Current per phase
-    current_l1_a: float | None = Field(default=None, ge=0)
-    current_l2_a: float | None = Field(default=None, ge=0)
-    current_l3_a: float | None = Field(default=None, ge=0)
+    current_l1_a: float | None = Field(default=None)
+    current_l2_a: float | None = Field(default=None)
+    current_l3_a: float | None = Field(default=None)
 
     # Grid frequency
-    frequency_hz: float | None = Field(default=None, ge=45, le=65)
+    frequency_hz: float | None = Field(default=None)
 
     # Energy counters (cumulative kWh from the meter)
-    energy_import_t1_kwh: float = Field(ge=0, description="Total imported energy tariff 1")
-    energy_import_t2_kwh: float = Field(ge=0, description="Total imported energy tariff 2")
-    energy_export_t1_kwh: float = Field(ge=0, description="Total exported energy tariff 1")
-    energy_export_t2_kwh: float = Field(ge=0, description="Total exported energy tariff 2")
+    energy_import_t1_kwh: float = Field(description="Total imported energy tariff 1")
+    energy_import_t2_kwh: float = Field(description="Total imported energy tariff 2")
+    energy_export_t1_kwh: float = Field(description="Total exported energy tariff 1")
+    energy_export_t2_kwh: float = Field(description="Total exported energy tariff 2")
