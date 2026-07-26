@@ -21,21 +21,28 @@ class P1Reading(EnergyReading):
 
     source_id: str = "homewizard_p1"
 
-    # Voltage per phase (single-phase: one value; three-phase: three values)
-    voltage_l1_v: float | None = Field(default=None)
-    voltage_l2_v: float | None = Field(default=None)
-    voltage_l3_v: float | None = Field(default=None)
+    active_tariff: int | None = Field(default=None)
 
-    # Current per phase
-    current_l1_a: float | None = Field(default=None)
-    current_l2_a: float | None = Field(default=None)
-    current_l3_a: float | None = Field(default=None)
+    # Cumulative import/export counters in kWh
+    total_power_import_kwh: float = Field(default=0.0)
+    total_power_import_t1_kwh: float = Field(default=0.0)
+    total_power_import_t2_kwh: float = Field(default=0.0)
+    total_power_export_kwh: float = Field(default=0.0)
+    total_power_export_t1_kwh: float = Field(default=0.0)
+    total_power_export_t2_kwh: float = Field(default=0.0)
 
-    # Grid frequency
-    frequency_hz: float | None = Field(default=None)
+    # Instantaneous values
+    active_power_l1_w: float | None = Field(default=None)
+    active_voltage_l1_v: float | None = Field(default=None)
+    active_current_a: float | None = Field(default=None)
+    active_current_l1_a: float | None = Field(default=None)
 
-    # Energy counters (cumulative kWh from the meter)
-    energy_import_t1_kwh: float = Field(description="Total imported energy tariff 1")
-    energy_import_t2_kwh: float = Field(description="Total imported energy tariff 2")
-    energy_export_t1_kwh: float = Field(description="Total exported energy tariff 1")
-    energy_export_t2_kwh: float = Field(description="Total exported energy tariff 2")
+    # Meter counters
+    voltage_sag_l1_count: int | None = Field(default=None)
+    voltage_swell_l1_count: int | None = Field(default=None)
+    any_power_fail_count: int | None = Field(default=None)
+    long_power_fail_count: int | None = Field(default=None)
+
+    # Gas meter values (if external gas meter is paired)
+    total_gas_m3: float | None = Field(default=None)
+    gas_timestamp: int | None = Field(default=None)

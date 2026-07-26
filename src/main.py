@@ -43,8 +43,8 @@ def collect_once() -> None:
     logger.info(
         "Collected: %.1f W | import_t1=%.3f kWh | import_t2=%.3f kWh",
         reading.active_power_w,
-        reading.energy_import_t1_kwh,
-        reading.energy_import_t2_kwh,
+        reading.total_power_import_t1_kwh,
+        reading.total_power_import_t2_kwh,
     )
 
 

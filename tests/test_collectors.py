@@ -7,18 +7,24 @@ from src.collectors.homewizard import HomeWizardP1Collector
 from src.models.readings import P1Reading
 
 _VALID_API_RESPONSE = {
+    "active_tariff": 1,
+    "total_power_import_kwh": 5154.765,
+    "total_power_import_t1_kwh": 2131.436,
+    "total_power_import_t2_kwh": 3023.329,
+    "total_power_export_kwh": 4963.836,
+    "total_power_export_t1_kwh": 1542.177,
+    "total_power_export_t2_kwh": 3421.659,
     "active_power_w": 1234.5,
+    "active_power_l1_w": 1230.0,
+    "active_current_a": 5.3,
     "active_voltage_l1_v": 231.0,
-    "active_voltage_l2_v": 230.5,
-    "active_voltage_l3_v": 232.0,
     "active_current_l1_a": 5.3,
-    "active_current_l2_a": 5.1,
-    "active_current_l3_a": 5.4,
-    "active_frequency_hz": 50.01,
-    "total_power_import_t1_kwh": 1000.0,
-    "total_power_import_t2_kwh": 500.0,
-    "total_power_export_t1_kwh": 0.0,
-    "total_power_export_t2_kwh": 0.0,
+    "voltage_sag_l1_count": 12,
+    "voltage_swell_l1_count": 1,
+    "any_power_fail_count": 8,
+    "long_power_fail_count": 5,
+    "total_gas_m3": 2749.428,
+    "gas_timestamp": 260726144003,
 }
 
 
@@ -41,7 +47,7 @@ class TestHomeWizardP1Collector:
         assert reading.source_id == "homewizard_p1"
         assert reading.device_id == "p1-test"
 
-    def test_voltage_and_frequency_parsed(self, collector):
+    def test_voltage_and_current_parsed(self, collector):
         mock_response = MagicMock()
         mock_response.json.return_value = _VALID_API_RESPONSE
         mock_response.raise_for_status = MagicMock()
@@ -49,8 +55,8 @@ class TestHomeWizardP1Collector:
         with patch("src.collectors.homewizard.requests.get", return_value=mock_response):
             reading = collector.fetch()
 
-        assert reading.voltage_l1_v == 231.0
-        assert reading.frequency_hz == pytest.approx(50.01)
+        assert reading.active_voltage_l1_v == 231.0
+        assert reading.active_current_a == pytest.approx(5.3)
 
     def test_energy_counters_parsed(self, collector):
         mock_response = MagicMock()
@@ -60,8 +66,8 @@ class TestHomeWizardP1Collector:
         with patch("src.collectors.homewizard.requests.get", return_value=mock_response):
             reading = collector.fetch()
 
-        assert reading.energy_import_t1_kwh == 1000.0
-        assert reading.energy_export_t1_kwh == 0.0
+        assert reading.total_power_import_t1_kwh == 2131.436
+        assert reading.total_power_export_t1_kwh == 1542.177
 
     def test_connection_error_retries_and_raises(self, collector):
         with (
@@ -153,8 +159,10 @@ class TestHomeWizardP1Collector:
     def test_missing_optional_fields_default_to_none(self, collector):
         minimal_response = {
             "active_power_w": 500.0,
+            "total_power_import_kwh": 50.0,
             "total_power_import_t1_kwh": 50.0,
             "total_power_import_t2_kwh": 0.0,
+            "total_power_export_kwh": 0.0,
             "total_power_export_t1_kwh": 0.0,
             "total_power_export_t2_kwh": 0.0,
         }
@@ -165,6 +173,6 @@ class TestHomeWizardP1Collector:
         with patch("src.collectors.homewizard.requests.get", return_value=mock_response):
             reading = collector.fetch()
 
-        assert reading.voltage_l1_v is None
-        assert reading.frequency_hz is None
+        assert reading.active_voltage_l1_v is None
+        assert reading.active_current_a is None
         assert reading.active_power_w == 500.0

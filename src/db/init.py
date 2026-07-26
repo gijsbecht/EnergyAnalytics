@@ -4,12 +4,12 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Bump this when adding schema changes; add a migration block below.
+# Fresh schema version for this project iteration.
 SCHEMA_VERSION = 1
 
 
 def init_db(db_path: Path) -> None:
-    """Initialize the database, applying migrations if needed.
+    """Initialize the database with the current schema.
 
     Idempotent: safe to call on every startup.
     """
@@ -22,8 +22,13 @@ def init_db(db_path: Path) -> None:
         current_version = conn.execute("PRAGMA user_version").fetchone()[0]
         logger.info("Database schema version: %d (target: %d)", current_version, SCHEMA_VERSION)
 
-        if current_version < 1:
-            _migrate_v1(conn)
+        # Enforce lightweight schema shape on every startup.
+        conn.executescript("""
+            DROP VIEW IF EXISTS energy_hourly;
+            DROP TABLE IF EXISTS energy_hourly;
+        """)
+
+        _migrate_v1(conn)
 
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
@@ -40,44 +45,44 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
             source_id      TEXT    NOT NULL,
             device_id      TEXT    NOT NULL,
             timestamp      INTEGER NOT NULL,
+            active_tariff              INTEGER,
+            total_power_import_kwh     REAL    NOT NULL DEFAULT 0,
+            total_power_import_t1_kwh  REAL    NOT NULL DEFAULT 0,
+            total_power_import_t2_kwh  REAL    NOT NULL DEFAULT 0,
+            total_power_export_kwh     REAL    NOT NULL DEFAULT 0,
+            total_power_export_t1_kwh  REAL    NOT NULL DEFAULT 0,
+            total_power_export_t2_kwh  REAL    NOT NULL DEFAULT 0,
             active_power_w REAL    NOT NULL,
-            voltage_l1_v   REAL,
-            voltage_l2_v   REAL,
-            voltage_l3_v   REAL,
-            current_l1_a   REAL,
-            current_l2_a   REAL,
-            current_l3_a   REAL,
-            frequency_hz   REAL,
-            energy_import_t1_kwh REAL NOT NULL DEFAULT 0,
-            energy_import_t2_kwh REAL NOT NULL DEFAULT 0,
-            energy_export_t1_kwh REAL NOT NULL DEFAULT 0,
-            energy_export_t2_kwh REAL NOT NULL DEFAULT 0,
+            active_power_l1_w          REAL,
+            active_voltage_l1_v        REAL,
+            active_current_a           REAL,
+            active_current_l1_a        REAL,
+            voltage_sag_l1_count       INTEGER,
+            voltage_swell_l1_count     INTEGER,
+            any_power_fail_count       INTEGER,
+            long_power_fail_count      INTEGER,
+            total_gas_m3               REAL,
+            gas_timestamp              INTEGER,
             created_at     INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER))
         );
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_source_device_time
             ON energy_readings (source_id, device_id, timestamp DESC);
 
-        CREATE TABLE IF NOT EXISTS energy_hourly (
-            source_id      TEXT    NOT NULL,
-            device_id      TEXT    NOT NULL,
-            hour_start     INTEGER NOT NULL,
-            avg_power_w    REAL    NOT NULL,
-            min_power_w    REAL    NOT NULL,
-            max_power_w    REAL    NOT NULL,
-            sample_count   INTEGER NOT NULL,
-            PRIMARY KEY (source_id, device_id, hour_start)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_hourly_source_device_hour
-            ON energy_hourly (source_id, device_id, hour_start DESC);
-
-        -- Auto-delete raw readings older than 7 days after each insert.
-        CREATE TRIGGER IF NOT EXISTS cleanup_old_readings
-        AFTER INSERT ON energy_readings
-        BEGIN
-            DELETE FROM energy_readings
-            WHERE created_at < (CAST(strftime('%s', 'now') AS INTEGER) - 604800);
-        END;
+        CREATE VIEW IF NOT EXISTS energy_hourly AS
+        WITH ranked AS (
+            SELECT
+                id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY source_id, device_id, CAST(((timestamp + 1800) / 3600) AS INTEGER)
+                    ORDER BY ABS(timestamp - (CAST(((timestamp + 1800) / 3600) AS INTEGER) * 3600)),
+                             timestamp DESC
+                ) AS rn
+            FROM energy_readings
+        )
+        SELECT er.*
+        FROM energy_readings er
+        JOIN ranked r ON r.id = er.id
+        WHERE r.rn = 1;
     """)
     logger.info("Migrated to schema version 1")

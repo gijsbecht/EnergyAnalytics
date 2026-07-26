@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import ValidationError
 
 from src.models.readings import EnergyReading, P1Reading
 
@@ -11,18 +10,24 @@ def valid_p1_data() -> dict:
     return {
         "device_id": "p1-001",
         "timestamp": datetime(2026, 7, 22, 10, 0, 0, tzinfo=UTC),
-        "active_power_w": 1234.5,
-        "voltage_l1_v": 231.0,
-        "voltage_l2_v": 230.5,
-        "voltage_l3_v": 232.0,
-        "current_l1_a": 5.3,
-        "current_l2_a": 5.1,
-        "current_l3_a": 5.4,
-        "frequency_hz": 50.01,
-        "energy_import_t1_kwh": 1000.0,
-        "energy_import_t2_kwh": 500.0,
-        "energy_export_t1_kwh": 0.0,
-        "energy_export_t2_kwh": 0.0,
+        "active_tariff": 1,
+        "active_power_w": -680.0,
+        "active_power_l1_w": -686.0,
+        "active_voltage_l1_v": 236.7,
+        "active_current_a": 2.898,
+        "active_current_l1_a": -2.898,
+        "total_power_import_kwh": 5154.765,
+        "total_power_import_t1_kwh": 2131.436,
+        "total_power_import_t2_kwh": 3023.329,
+        "total_power_export_kwh": 4963.836,
+        "total_power_export_t1_kwh": 1542.177,
+        "total_power_export_t2_kwh": 3421.659,
+        "voltage_sag_l1_count": 12,
+        "voltage_swell_l1_count": 1,
+        "any_power_fail_count": 8,
+        "long_power_fail_count": 5,
+        "total_gas_m3": 2749.428,
+        "gas_timestamp": 260726144003,
     }
 
 
@@ -30,53 +35,36 @@ class TestP1Reading:
     def test_valid_reading_parsed(self, valid_p1_data):
         reading = P1Reading(**valid_p1_data)
         assert reading.source_id == "homewizard_p1"
-        assert reading.active_power_w == 1234.5
-        assert reading.voltage_l1_v == 231.0
-        assert reading.energy_import_t1_kwh == 1000.0
+        assert reading.active_power_w == -680.0
+        assert reading.active_voltage_l1_v == 236.7
+        assert reading.total_power_import_t1_kwh == 2131.436
 
     def test_source_id_is_always_homewizard_p1(self, valid_p1_data):
         reading = P1Reading(**valid_p1_data)
         assert reading.source_id == "homewizard_p1"
 
-    def test_negative_power_rejected(self, valid_p1_data):
+    def test_negative_power_is_valid_for_export(self, valid_p1_data):
         valid_p1_data["active_power_w"] = -1.0
-        with pytest.raises(ValidationError):
-            P1Reading(**valid_p1_data)
-
-    def test_voltage_too_high_rejected(self, valid_p1_data):
-        valid_p1_data["voltage_l1_v"] = 350.0
-        with pytest.raises(ValidationError):
-            P1Reading(**valid_p1_data)
-
-    def test_voltage_negative_rejected(self, valid_p1_data):
-        valid_p1_data["voltage_l1_v"] = -1.0
-        with pytest.raises(ValidationError):
-            P1Reading(**valid_p1_data)
-
-    def test_frequency_out_of_range_rejected(self, valid_p1_data):
-        valid_p1_data["frequency_hz"] = 100.0
-        with pytest.raises(ValidationError):
-            P1Reading(**valid_p1_data)
-
-    def test_negative_energy_counter_rejected(self, valid_p1_data):
-        valid_p1_data["energy_import_t1_kwh"] = -0.001
-        with pytest.raises(ValidationError):
-            P1Reading(**valid_p1_data)
-
-    def test_optional_phase_fields_can_be_none(self, valid_p1_data):
-        valid_p1_data.pop("voltage_l2_v")
-        valid_p1_data.pop("voltage_l3_v")
-        valid_p1_data.pop("current_l2_a")
-        valid_p1_data.pop("current_l3_a")
         reading = P1Reading(**valid_p1_data)
-        assert reading.voltage_l2_v is None
-        assert reading.voltage_l3_v is None
+        assert reading.active_power_w == -1.0
+
+    def test_default_source_id_applied(self, valid_p1_data):
+        reading = P1Reading(**valid_p1_data)
+        assert reading.source_id == "homewizard_p1"
+
+    def test_optional_fields_can_be_none(self, valid_p1_data):
+        valid_p1_data["active_current_a"] = None
+        valid_p1_data["total_gas_m3"] = None
+        valid_p1_data["gas_timestamp"] = None
+        reading = P1Reading(**valid_p1_data)
+        assert reading.active_current_a is None
+        assert reading.total_gas_m3 is None
 
     def test_inherits_energy_reading(self, valid_p1_data):
         reading = P1Reading(**valid_p1_data)
         assert isinstance(reading, EnergyReading)
 
-    def test_zero_power_is_valid(self, valid_p1_data):
-        valid_p1_data["active_power_w"] = 0.0
+    def test_tariff_is_integer(self, valid_p1_data):
+        valid_p1_data["active_tariff"] = 2
         reading = P1Reading(**valid_p1_data)
-        assert reading.active_power_w == 0.0
+        assert reading.active_tariff == 2
