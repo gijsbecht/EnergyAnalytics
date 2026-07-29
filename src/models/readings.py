@@ -46,3 +46,17 @@ class P1Reading(EnergyReading):
     # Gas meter values (if external gas meter is paired)
     total_gas_m3: float | None = Field(default=None)
     gas_timestamp: int | None = Field(default=None)
+
+
+class APSystemsReading(EnergyReading):
+    """APSystems solar inverter hourly energy reading.
+
+    One reading per hour of the day, fetched in a single daily API call.
+    source_id is always 'apsystems'.
+    active_power_w represents average watts for the hour (energy_kwh * 1000).
+    """
+
+    source_id: str = "apsystems"
+
+    # Hourly solar energy production in kWh
+    energy_kwh: float = Field(description="Solar energy produced during this hour in kWh")

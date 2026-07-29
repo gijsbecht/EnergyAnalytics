@@ -2,7 +2,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from src.models.readings import P1Reading
+from src.models.readings import APSystemsReading, P1Reading
 
 logger = logging.getLogger(__name__)
 
@@ -91,5 +91,27 @@ def get_daily_summary(db_path: Path, source_id: str, year: int, month: int) -> l
             (source_id, str(year), f"{month:02d}"),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def insert_apsystems_readings(db_path: Path, readings: list[APSystemsReading]) -> None:
+    """Batch-insert hourly APSystems readings. Duplicate timestamps are silently ignored."""
+    if not readings:
+        return
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO apsystems_readings (device_id, timestamp, energy_kwh)
+            VALUES (?, ?, ?)
+            """,
+            [
+                (r.device_id, int(r.timestamp.timestamp()), r.energy_kwh)
+                for r in readings
+            ],
+        )
+        conn.commit()
+        logger.debug("Inserted %d APSystems readings", len(readings))
     finally:
         conn.close()

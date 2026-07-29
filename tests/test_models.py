@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from src.models.readings import EnergyReading, P1Reading
+from src.models.readings import APSystemsReading, EnergyReading, P1Reading
 
 
 @pytest.fixture
@@ -68,3 +68,37 @@ class TestP1Reading:
         valid_p1_data["active_tariff"] = 2
         reading = P1Reading(**valid_p1_data)
         assert reading.active_tariff == 2
+
+
+class TestAPSystemsReading:
+    @pytest.fixture
+    def valid_apsystems_data(self) -> dict:
+        return {
+            "device_id": "ecu-001",
+            "timestamp": datetime(2026, 7, 26, 10, 0, 0, tzinfo=UTC),
+            "energy_kwh": 1.10,
+            "active_power_w": 1100.0,
+        }
+
+    def test_valid_reading_parsed(self, valid_apsystems_data):
+        reading = APSystemsReading(**valid_apsystems_data)
+        assert reading.energy_kwh == pytest.approx(1.10)
+        assert reading.active_power_w == pytest.approx(1100.0)
+
+    def test_source_id_is_always_apsystems(self, valid_apsystems_data):
+        reading = APSystemsReading(**valid_apsystems_data)
+        assert reading.source_id == "apsystems"
+
+    def test_device_id_stored(self, valid_apsystems_data):
+        reading = APSystemsReading(**valid_apsystems_data)
+        assert reading.device_id == "ecu-001"
+
+    def test_zero_energy_kwh_is_valid(self, valid_apsystems_data):
+        valid_apsystems_data["energy_kwh"] = 0.0
+        valid_apsystems_data["active_power_w"] = 0.0
+        reading = APSystemsReading(**valid_apsystems_data)
+        assert reading.energy_kwh == 0.0
+
+    def test_inherits_energy_reading(self, valid_apsystems_data):
+        reading = APSystemsReading(**valid_apsystems_data)
+        assert isinstance(reading, EnergyReading)

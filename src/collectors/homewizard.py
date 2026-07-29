@@ -1,6 +1,6 @@
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 
 import requests
 
@@ -97,7 +97,7 @@ class HomeWizardP1Collector(CollectorBase):
         """Map the HomeWizard API v1 JSON response to a P1Reading."""
         return P1Reading(
             device_id=self._device_id,
-            timestamp=datetime.now(UTC),
+            timestamp=datetime.now().astimezone(),
             active_power_w=data.get("active_power_w", 0.0),
             active_tariff=data.get("active_tariff"),
             total_power_import_kwh=data.get("total_power_import_kwh", 0.0),

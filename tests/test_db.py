@@ -7,9 +7,10 @@ import pytest
 from src.db.init import SCHEMA_VERSION, init_db
 from src.db.queries import (
     get_daily_summary,
+    insert_apsystems_readings,
     insert_p1_reading,
 )
-from src.models.readings import P1Reading
+from src.models.readings import APSystemsReading, P1Reading
 
 
 @pytest.fixture
@@ -56,12 +57,31 @@ class TestInitDb:
         assert "energy_readings" in tables
         conn.close()
 
+    def test_creates_apsystems_readings_table(self, db_path):
+        conn = sqlite3.connect(db_path)
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        assert "apsystems_readings" in tables
+        conn.close()
+
     def test_creates_energy_hourly_view(self, db_path):
         conn = sqlite3.connect(db_path)
         views = {
-            r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='view'").fetchall()
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='view'").fetchall()
         }
         assert "energy_hourly" in views
+        conn.close()
+
+    def test_creates_energy_combined_hourly_view(self, db_path):
+        conn = sqlite3.connect(db_path)
+        views = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='view'").fetchall()
+        }
+        assert "energy_combined_hourly" in views
         conn.close()
 
     def test_no_cleanup_trigger_exists(self, db_path):
@@ -159,3 +179,78 @@ class TestGetDailySummary:
         insert_p1_reading(db_path, _make_reading(ts=ts))
         results = get_daily_summary(db_path, "homewizard_p1", 2026, 6)
         assert results == []
+
+
+def _make_apsystems_reading(hour: int = 10, energy_kwh: float = 1.23) -> APSystemsReading:
+    ts = datetime(2026, 7, 22, hour, 0, 0, tzinfo=UTC)
+    return APSystemsReading(
+        device_id="test-ecu",
+        timestamp=ts,
+        energy_kwh=energy_kwh,
+        active_power_w=energy_kwh * 1000.0,
+    )
+
+
+class TestInsertAPSystemsReadings:
+    def test_readings_stored(self, db_path):
+        readings = [_make_apsystems_reading(h, 0.5) for h in range(24)]
+        insert_apsystems_readings(db_path, readings)
+        conn = sqlite3.connect(db_path)
+        count = conn.execute("SELECT COUNT(*) FROM apsystems_readings").fetchone()[0]
+        assert count == 24
+        conn.close()
+
+    def test_reading_values_correct(self, db_path):
+        insert_apsystems_readings(db_path, [_make_apsystems_reading(hour=14, energy_kwh=1.40)])
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT energy_kwh FROM apsystems_readings WHERE device_id = 'test-ecu'"
+        ).fetchone()
+        assert row[0] == pytest.approx(1.40)
+        conn.close()
+
+    def test_duplicate_timestamp_ignored(self, db_path):
+        reading = _make_apsystems_reading(hour=10, energy_kwh=1.0)
+        insert_apsystems_readings(db_path, [reading])
+        insert_apsystems_readings(db_path, [reading])
+        conn = sqlite3.connect(db_path)
+        count = conn.execute("SELECT COUNT(*) FROM apsystems_readings").fetchone()[0]
+        assert count == 1
+        conn.close()
+
+    def test_empty_list_is_noop(self, db_path):
+        insert_apsystems_readings(db_path, [])
+        conn = sqlite3.connect(db_path)
+        count = conn.execute("SELECT COUNT(*) FROM apsystems_readings").fetchone()[0]
+        assert count == 0
+        conn.close()
+
+    def test_combined_view_joins_p1_and_solar(self, db_path):
+        # Insert a P1 reading at 10:04 (maps to 10:00 hour bucket)
+        ts_p1 = datetime(2026, 7, 22, 10, 4, 0, tzinfo=UTC)
+        insert_p1_reading(db_path, _make_reading(power_w=500.0, ts=ts_p1))
+
+        # Insert an APSystems reading for the 10:00 hour
+        insert_apsystems_readings(db_path, [_make_apsystems_reading(hour=10, energy_kwh=0.75)])
+
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT active_power_w, solar_energy_kwh FROM energy_combined_hourly"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == 500.0
+        assert row[1] == pytest.approx(0.75)
+        conn.close()
+
+    def test_combined_view_solar_null_when_no_apsystems_data(self, db_path):
+        ts_p1 = datetime(2026, 7, 22, 10, 4, 0, tzinfo=UTC)
+        insert_p1_reading(db_path, _make_reading(power_w=500.0, ts=ts_p1))
+
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT active_power_w, solar_energy_kwh FROM energy_combined_hourly"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == 500.0
+        assert row[1] is None
+        conn.close()

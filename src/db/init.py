@@ -24,6 +24,7 @@ def init_db(db_path: Path) -> None:
 
         # Enforce lightweight schema shape on every startup.
         conn.executescript("""
+            DROP VIEW IF EXISTS energy_combined_hourly;
             DROP VIEW IF EXISTS energy_hourly;
             DROP TABLE IF EXISTS energy_hourly;
         """)
@@ -84,5 +85,35 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
         FROM energy_readings er
         JOIN ranked r ON r.id = er.id
         WHERE r.rn = 1;
+
+        CREATE TABLE IF NOT EXISTS apsystems_readings (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id   TEXT    NOT NULL,
+            timestamp   INTEGER NOT NULL,
+            energy_kwh  REAL    NOT NULL,
+            created_at  INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER))
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_apsystems_device_time
+            ON apsystems_readings (device_id, timestamp);
+
+        CREATE VIEW IF NOT EXISTS energy_combined_hourly AS
+        SELECT
+            CAST((eh.timestamp + 1800) / 3600 AS INTEGER) * 3600 AS hour_ts,
+            eh.timestamp        AS p1_timestamp,
+            eh.active_power_w,
+            eh.active_tariff,
+            eh.total_power_import_kwh,
+            eh.total_power_import_t1_kwh,
+            eh.total_power_import_t2_kwh,
+            eh.total_power_export_kwh,
+            eh.total_power_export_t1_kwh,
+            eh.total_power_export_t2_kwh,
+            eh.total_gas_m3,
+            ar.energy_kwh       AS solar_energy_kwh
+        FROM energy_hourly eh
+        LEFT JOIN apsystems_readings ar
+            ON CAST((eh.timestamp + 1800) / 3600 AS INTEGER) * 3600 = ar.timestamp
+        WHERE eh.source_id = 'homewizard_p1';
     """)
     logger.info("Migrated to schema version 1")
