@@ -37,6 +37,18 @@ class APSystemsConfig:
     timeout_s: float = 10.0
 
 
+@dataclass(frozen=True)
+class EPEXConfig:
+    # API key for parse.bot endpoint
+    parse_api_key: str
+
+    # Path to the SQLite database file
+    db_path: Path
+
+    # HTTP request timeout
+    timeout_s: float = 10.0
+
+
 def load_config(env_file: Path | None = None) -> Config:
     """Load configuration from a local env file and environment variables.
 
@@ -122,6 +134,35 @@ def load_apsystems_config(env_file: Path | None = None) -> APSystemsConfig:
         app_secret=app_secret,
         sid=sid,
         ecu_id=ecu_id,
+        db_path=db_path,
+        timeout_s=timeout,
+    )
+
+
+def load_epex_config(env_file: Path | None = None) -> EPEXConfig:
+    """Load EPEX spot pricing configuration from environment variables.
+
+    Required environment variables:
+        PARSE_API_KEY          API key for parse.bot endpoint
+
+    Optional environment variables:
+        DB_PATH                Path to the SQLite database (default: ~/energy.db)
+        EPEX_TIMEOUT           HTTP timeout in seconds (default: 10)
+    """
+    if env_file is None:
+        env_file = Path(__file__).resolve().parent.parent / ".env.local"
+
+    load_dotenv(dotenv_path=env_file, override=False)
+
+    api_key = os.environ.get("PARSE_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing required environment variable: PARSE_API_KEY")
+
+    db_path = Path(os.environ.get("DB_PATH", Path.home() / "energy.db"))
+    timeout = float(os.environ.get("EPEX_TIMEOUT", "10"))
+
+    return EPEXConfig(
+        parse_api_key=api_key,
         db_path=db_path,
         timeout_s=timeout,
     )

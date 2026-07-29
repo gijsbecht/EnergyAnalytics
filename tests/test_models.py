@@ -1,8 +1,8 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
-from src.models.readings import APSystemsReading, EnergyReading, P1Reading
+from src.models.readings import APSystemsReading, EnergyReading, EPEXSpotReading, P1Reading
 
 
 @pytest.fixture
@@ -102,3 +102,23 @@ class TestAPSystemsReading:
     def test_inherits_energy_reading(self, valid_apsystems_data):
         reading = APSystemsReading(**valid_apsystems_data)
         assert isinstance(reading, EnergyReading)
+
+
+class TestEPEXSpotReading:
+    @pytest.fixture
+    def valid_epex_data(self) -> dict:
+        return {
+            "timestamp": datetime(2026, 7, 28, 10, 0, 0, tzinfo=UTC),
+            "delivery_date": date(2026, 7, 28),
+            "price_eur_mwh": 141.76,
+            "volume_total": None,
+        }
+
+    def test_valid_reading_parsed(self, valid_epex_data):
+        reading = EPEXSpotReading(**valid_epex_data)
+        assert reading.price_eur_mwh == pytest.approx(141.76)
+        assert reading.delivery_date == date(2026, 7, 28)
+
+    def test_volume_total_optional(self, valid_epex_data):
+        reading = EPEXSpotReading(**valid_epex_data)
+        assert reading.volume_total is None

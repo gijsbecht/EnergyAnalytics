@@ -8,9 +8,10 @@ from src.db.init import SCHEMA_VERSION, init_db
 from src.db.queries import (
     get_daily_summary,
     insert_apsystems_readings,
+    insert_epex_readings,
     insert_p1_reading,
 )
-from src.models.readings import APSystemsReading, P1Reading
+from src.models.readings import APSystemsReading, EPEXSpotReading, P1Reading
 
 
 @pytest.fixture
@@ -64,6 +65,15 @@ class TestInitDb:
             for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
         assert "apsystems_readings" in tables
+        conn.close()
+
+    def test_creates_epex_spot_prices_table(self, db_path):
+        conn = sqlite3.connect(db_path)
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        assert "epex_spot_prices" in tables
         conn.close()
 
     def test_creates_energy_hourly_view(self, db_path):
@@ -191,6 +201,16 @@ def _make_apsystems_reading(hour: int = 10, energy_kwh: float = 1.23) -> APSyste
     )
 
 
+def _make_epex_reading(hour: int = 10, price_eur_mwh: float = 120.5) -> EPEXSpotReading:
+    ts = datetime(2026, 7, 22, hour, 0, 0, tzinfo=UTC)
+    return EPEXSpotReading(
+        timestamp=ts,
+        delivery_date=ts.date(),
+        price_eur_mwh=price_eur_mwh,
+        volume_total=None,
+    )
+
+
 class TestInsertAPSystemsReadings:
     def test_readings_stored(self, db_path):
         readings = [_make_apsystems_reading(h, 0.5) for h in range(24)]
@@ -230,16 +250,38 @@ class TestInsertAPSystemsReadings:
         ts_p1 = datetime(2026, 7, 22, 10, 4, 0, tzinfo=UTC)
         insert_p1_reading(db_path, _make_reading(power_w=500.0, ts=ts_p1))
 
-        # Insert an APSystems reading for the 10:00 hour
+        # Insert APSystems and EPEX readings for the same 10:00 hour
         insert_apsystems_readings(db_path, [_make_apsystems_reading(hour=10, energy_kwh=0.75)])
+        insert_epex_readings(db_path, [_make_epex_reading(hour=10, price_eur_mwh=99.9)])
 
         conn = sqlite3.connect(db_path)
         row = conn.execute(
-            "SELECT active_power_w, solar_energy_kwh FROM energy_combined_hourly"
+            "SELECT active_power_w, solar_energy_kwh, epex_price_eur_mwh "
+            "FROM energy_combined_hourly"
         ).fetchone()
         assert row is not None
         assert row[0] == 500.0
         assert row[1] == pytest.approx(0.75)
+        assert row[2] == pytest.approx(99.9)
+        conn.close()
+
+
+class TestInsertEPEXReadings:
+    def test_readings_stored(self, db_path):
+        readings = [_make_epex_reading(h, 10.0 + h) for h in range(24)]
+        insert_epex_readings(db_path, readings)
+        conn = sqlite3.connect(db_path)
+        count = conn.execute("SELECT COUNT(*) FROM epex_spot_prices").fetchone()[0]
+        assert count == 24
+        conn.close()
+
+    def test_duplicate_timestamp_ignored(self, db_path):
+        reading = _make_epex_reading(hour=10, price_eur_mwh=50.0)
+        insert_epex_readings(db_path, [reading])
+        insert_epex_readings(db_path, [reading])
+        conn = sqlite3.connect(db_path)
+        count = conn.execute("SELECT COUNT(*) FROM epex_spot_prices").fetchone()[0]
+        assert count == 1
         conn.close()
 
     def test_combined_view_solar_null_when_no_apsystems_data(self, db_path):

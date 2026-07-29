@@ -2,7 +2,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from src.models.readings import APSystemsReading, P1Reading
+from src.models.readings import APSystemsReading, EPEXSpotReading, P1Reading
 
 logger = logging.getLogger(__name__)
 
@@ -113,5 +113,34 @@ def insert_apsystems_readings(db_path: Path, readings: list[APSystemsReading]) -
         )
         conn.commit()
         logger.debug("Inserted %d APSystems readings", len(readings))
+    finally:
+        conn.close()
+
+
+def insert_epex_readings(db_path: Path, readings: list[EPEXSpotReading]) -> None:
+    """Batch-insert hourly EPEX spot readings. Duplicate timestamps are ignored."""
+    if not readings:
+        return
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO epex_spot_prices (
+                timestamp, delivery_date, price_eur_mwh, volume_total
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                (
+                    int(r.timestamp.timestamp()),
+                    r.delivery_date.isoformat(),
+                    r.price_eur_mwh,
+                    r.volume_total,
+                )
+                for r in readings
+            ],
+        )
+        conn.commit()
+        logger.debug("Inserted %d EPEX spot readings", len(readings))
     finally:
         conn.close()

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.collectors.apsystems import APSystemsCollector
+from src.collectors.epex import EPEXCollector
 from src.collectors.homewizard import HomeWizardP1Collector
 from src.models.readings import P1Reading
 
@@ -310,3 +311,73 @@ class TestAPSystemsCollector:
 
         assert readings[0].energy_kwh == 0.0
         assert readings[23].energy_kwh == 0.0
+
+
+_VALID_EPEX_RESPONSE = {
+    "status": "success",
+    "data": {
+        "delivery_date": "2026-07-28",
+        "results": [
+            {
+                "timestamp_ms": 1785189600000,
+                "datetime": "2026-07-27T22:00:00",
+                "price": 161.08,
+                "volume_total": None,
+            },
+            {
+                "timestamp_ms": 1785193200000,
+                "datetime": "2026-07-27T23:00:00",
+                "price": 148.57,
+                "volume_total": None,
+            },
+        ],
+    },
+}
+
+
+@pytest.fixture
+def epex_collector() -> EPEXCollector:
+    return EPEXCollector(api_key="parse_test_key")
+
+
+class TestEPEXCollector:
+    def test_returns_rows_from_results(self, epex_collector):
+        mock_response = MagicMock()
+        mock_response.json.return_value = _VALID_EPEX_RESPONSE
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("src.collectors.epex.requests.get", return_value=mock_response):
+            readings = epex_collector.fetch_day(date(2026, 7, 28))
+
+        assert len(readings) == 2
+        assert readings[0].price_eur_mwh == pytest.approx(161.08)
+
+    def test_timestamp_uses_timestamp_ms(self, epex_collector):
+        mock_response = MagicMock()
+        mock_response.json.return_value = _VALID_EPEX_RESPONSE
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("src.collectors.epex.requests.get", return_value=mock_response):
+            readings = epex_collector.fetch_day(date(2026, 7, 28))
+
+        assert int(readings[0].timestamp.timestamp()) == 1785189600
+        assert int(readings[1].timestamp.timestamp()) == 1785193200
+
+    def test_non_success_status_raises_value_error(self, epex_collector):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"status": "error", "message": "bad request"}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("src.collectors.epex.requests.get", return_value=mock_response):
+            with pytest.raises(ValueError, match="EPEX API error"):
+                epex_collector.fetch_day(date(2026, 7, 28))
+
+    def test_http_error_raises_connection_error(self, epex_collector):
+        import requests as req
+
+        with patch(
+            "src.collectors.epex.requests.get",
+            side_effect=req.exceptions.ConnectionError("timeout"),
+        ):
+            with pytest.raises(ConnectionError):
+                epex_collector.fetch_day(date(2026, 7, 28))

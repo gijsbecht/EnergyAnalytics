@@ -1,0 +1,11 @@
+[Unit]
+Description=Energy Analytics - run daily combined collection
+Requires=daily-collection.service
+
+[Timer]
+OnCalendar=02:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

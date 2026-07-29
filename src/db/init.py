@@ -97,6 +97,18 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_apsystems_device_time
             ON apsystems_readings (device_id, timestamp);
 
+        CREATE TABLE IF NOT EXISTS epex_spot_prices (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp      INTEGER NOT NULL,
+            delivery_date  TEXT    NOT NULL,
+            price_eur_mwh  REAL    NOT NULL,
+            volume_total   REAL,
+            created_at     INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER))
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_epex_timestamp
+            ON epex_spot_prices (timestamp);
+
         CREATE VIEW IF NOT EXISTS energy_combined_hourly AS
         SELECT
             CAST((eh.timestamp + 1800) / 3600 AS INTEGER) * 3600 AS hour_ts,
@@ -110,10 +122,14 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
             eh.total_power_export_t1_kwh,
             eh.total_power_export_t2_kwh,
             eh.total_gas_m3,
-            ar.energy_kwh       AS solar_energy_kwh
+            ar.energy_kwh       AS solar_energy_kwh,
+            ep.price_eur_mwh    AS epex_price_eur_mwh,
+            ep.volume_total     AS epex_volume_total
         FROM energy_hourly eh
         LEFT JOIN apsystems_readings ar
             ON CAST((eh.timestamp + 1800) / 3600 AS INTEGER) * 3600 = ar.timestamp
+        LEFT JOIN epex_spot_prices ep
+            ON CAST((eh.timestamp + 1800) / 3600 AS INTEGER) * 3600 = ep.timestamp
         WHERE eh.source_id = 'homewizard_p1';
     """)
     logger.info("Migrated to schema version 1")

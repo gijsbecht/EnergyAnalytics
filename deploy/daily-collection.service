@@ -1,0 +1,27 @@
+[Unit]
+Description=Energy Analytics - collect daily APSystems and EPEX datasets
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/EnergyAnalytics
+
+# Environment variables - edit these for your setup
+Environment="APSYSTEMS_APP_ID=your_app_id"
+Environment="APSYSTEMS_APP_SECRET=your_app_secret"
+Environment="APSYSTEMS_SID=your_system_id"
+Environment="APSYSTEMS_ECU_ID=your_ecu_id"
+Environment="PARSE_API_KEY=your_parse_api_key"
+Environment="DB_PATH=/home/pi/energy.db"
+
+ExecStart=/home/pi/EnergyAnalytics/.venv/bin/python -m src.main_daily
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=daily-collection
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

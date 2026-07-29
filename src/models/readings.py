@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -60,3 +60,12 @@ class APSystemsReading(EnergyReading):
 
     # Hourly solar energy production in kWh
     energy_kwh: float = Field(description="Solar energy produced during this hour in kWh")
+
+
+class EPEXSpotReading(BaseModel):
+    """Day-ahead EPEX spot price for a single hour."""
+
+    timestamp: datetime
+    delivery_date: date
+    price_eur_mwh: float
+    volume_total: float | None = Field(default=None)
