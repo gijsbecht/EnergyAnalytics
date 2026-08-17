@@ -24,6 +24,7 @@ def init_db(db_path: Path) -> None:
 
         # Enforce lightweight schema shape on every startup.
         conn.executescript("""
+            DROP VIEW IF EXISTS energy_combined_5min;
             DROP VIEW IF EXISTS energy_combined_hourly;
             DROP VIEW IF EXISTS energy_hourly;
             DROP TABLE IF EXISTS energy_hourly;
@@ -131,5 +132,44 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
         LEFT JOIN epex_spot_prices ep
             ON CAST((eh.timestamp + 1800) / 3600 AS INTEGER) * 3600 = ep.timestamp
         WHERE eh.source_id = 'homewizard_p1';
+
+        CREATE VIEW IF NOT EXISTS energy_combined_5min AS
+        WITH ranked AS (
+            SELECT
+                id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY source_id, device_id, CAST(((timestamp + 150) / 300) AS INTEGER)
+                    ORDER BY ABS(timestamp - (CAST(((timestamp + 150) / 300) AS INTEGER) * 300)),
+                             timestamp DESC
+                ) AS rn
+            FROM energy_readings
+        ),
+        energy_5min AS (
+            SELECT er.*
+            FROM energy_readings er
+            JOIN ranked r ON r.id = er.id
+            WHERE r.rn = 1
+        )
+        SELECT
+            CAST((e5.timestamp + 150) / 300 AS INTEGER) * 300 AS five_min_ts,
+            e5.timestamp        AS p1_timestamp,
+            e5.active_power_w,
+            e5.active_tariff,
+            e5.total_power_import_kwh,
+            e5.total_power_import_t1_kwh,
+            e5.total_power_import_t2_kwh,
+            e5.total_power_export_kwh,
+            e5.total_power_export_t1_kwh,
+            e5.total_power_export_t2_kwh,
+            e5.total_gas_m3,
+            ar.energy_kwh       AS solar_energy_kwh,
+            ep.price_eur_mwh    AS epex_price_eur_mwh,
+            ep.volume_total     AS epex_volume_total
+        FROM energy_5min e5
+        LEFT JOIN apsystems_readings ar
+            ON CAST((e5.timestamp + 150) / 300 AS INTEGER) * 300 = ar.timestamp
+        LEFT JOIN epex_spot_prices ep
+            ON CAST((e5.timestamp + 1800) / 3600 AS INTEGER) * 3600 = ep.timestamp
+        WHERE e5.source_id = 'homewizard_p1';
     """)
     logger.info("Migrated to schema version 1")

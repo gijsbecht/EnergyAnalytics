@@ -2,8 +2,11 @@
 
 Lightweight energy data collector for Raspberry Pi Zero 2W.
 
-The app fetches HomeWizard P1 readings and stores them in a local SQLite database.
-It is designed to run every 15 minutes with systemd timer units.
+The project currently collects three data layers into SQLite:
+
+- HomeWizard P1 meter telemetry (high-frequency point readings)
+- APSystems 5-minute solar energy (daily batch for previous day)
+- EPEX NL day-ahead hourly spot prices (daily batch for previous day)
 
 ## Stack
 
@@ -11,6 +14,7 @@ It is designed to run every 15 minutes with systemd timer units.
 - uv (dependency management + virtual environment)
 - SQLite (local file database)
 - Pydantic (data validation)
+- requests (HTTP clients)
 - pytest + pytest-cov
 - Ruff (lint + formatting)
 
@@ -19,11 +23,16 @@ It is designed to run every 15 minutes with systemd timer units.
 Implemented:
 
 - Collector foundation and HomeWizard P1 collector with retry + circuit breaker
+- APSystems collector with HMAC-signed API requests
+- EPEX collector for NL day-ahead spot pricing
 - SQLite schema initialization with versioning
-- Raw readings table and hourly aggregate table
-- Query functions for latest, hourly, and daily summaries
-- systemd service and timer unit files
-- Full automated test suite (mocked, no real meter required)
+- `energy_readings` raw P1 table + `energy_hourly` view
+- `apsystems_readings` 5-minute solar table
+- `epex_spot_prices` hourly pricing table
+- `energy_combined_hourly` view joining P1 + APSystems + EPEX by hour
+- `energy_combined_5min` view joining P1 + APSystems + EPEX on 5-minute buckets
+- systemd units for 5-minute P1 collection and daily batch collection
+- Full automated test suite with mocked external APIs
 
 ## Project Layout
 
@@ -32,6 +41,8 @@ src/
 	collectors/
 		base.py
 		homewizard.py
+		apsystems.py
+		epex.py
 	db/
 		init.py
 		queries.py
@@ -39,10 +50,13 @@ src/
 		readings.py
 	config.py
 	main.py
+	main_daily.py
 tests/
 deploy/
 	energy-analytics.service
 	energy-analytics.timer
+	daily-collection.service
+	daily-collection.timer
 ```
 
 ## Quick Start (Local)
@@ -55,16 +69,10 @@ uv sync
 
 ### 2. Run tests
 
-This works without a HomeWizard meter because all external calls are mocked.
+This works without real devices/API keys because external calls are mocked.
 
 ```bash
 uv run pytest
-```
-
-With extra detail:
-
-```bash
-uv run pytest -v --cov=src --cov-report=term-missing
 ```
 
 ### 3. Lint and format
@@ -76,127 +84,146 @@ uv run ruff format .
 
 ## Configuration
 
-The app reads configuration from environment variables.
+The app loads `.env.local` automatically (when present), without overriding
+already-set process environment variables.
 
-For local development, `.env.local` in the project root is auto-loaded.
-Process environment variables still override values from `.env.local`.
+### P1 collector (`src.main`)
 
 Required:
 
-- HOMEWIZARD_HOST
-- HOMEWIZARD_DEVICE_ID
+- `HOMEWIZARD_HOST`
+- `HOMEWIZARD_DEVICE_ID`
 
 Optional:
 
-- DB_PATH (default: ~/energy.db)
-- HOMEWIZARD_TIMEOUT (default: 5)
+- `DB_PATH` (default: `~/energy.db`)
+- `HOMEWIZARD_TIMEOUT` (default: `5`)
 
-Example:
+### Daily APSystems + EPEX collector (`src.main_daily`)
 
-```bash
-export HOMEWIZARD_HOST=192.168.1.50
-export HOMEWIZARD_DEVICE_ID=p1-meter-01
-export DB_PATH=$HOME/energy.db
-export HOMEWIZARD_TIMEOUT=5
-```
+Required:
 
-Or edit `.env.local` and run directly:
+- `APSYSTEMS_APP_ID`
+- `APSYSTEMS_APP_SECRET`
+- `APSYSTEMS_SID`
+- `APSYSTEMS_ECU_ID`
+- `PARSE_API_KEY`
+
+Optional:
+
+- `DB_PATH` (default: `~/energy.db`)
+- `APSYSTEMS_TIMEOUT` (default: `10`)
+- `EPEX_TIMEOUT` (default: `10`)
+
+## Run Manually
+
+P1 single run:
 
 ```bash
 uv run python -m src.main
 ```
 
-## Run One Collection Manually
+Daily APSystems + EPEX run:
 
 ```bash
-uv run python -m src.main
+uv run python -m src.main_daily
 ```
 
-Expected behavior:
+## Timezone Notes (Important)
 
-1. Database is initialized (idempotent).
-2. One reading is fetched from HomeWizard.
-3. Reading is inserted into energy_readings.
-4. Hourly aggregate is inserted/updated in energy_hourly.
+EPEX responses include both `datetime` and `timestamp_ms` fields. The
+implementation uses `timestamp_ms` as source of truth to avoid timezone
+ambiguity in the string field.
 
-If you do not have a P1 meter yet, this command will fail on missing env vars or network call.
-That is expected. Use the test suite to validate functionality before hardware arrives.
+Example for NL/CEST delivery day:
+
+- `2026-07-27T22:00:00` UTC corresponds to local `2026-07-28 00:00`
+
+Using epoch timestamps ensures correct joins across both hourly and 5-minute data layers.
 
 ## Database Notes
 
-- SQLite database file is local (default: ~/energy.db)
+- SQLite database file is local (default: `~/energy.db`)
 - WAL mode is enabled
-- Schema version is tracked with PRAGMA user_version
-- Raw readings older than 7 days are auto-cleaned by trigger
-- Hourly aggregates are kept for long-term insights
+- Schema version is tracked with `PRAGMA user_version`
+- `init_db()` is idempotent and safe to run on each invocation
+
+Main structures:
+
+- `energy_readings` (raw P1 data)
+- `energy_hourly` (closest-sample-per-hour P1 view)
+- `apsystems_readings` (5-minute solar kWh)
+- `epex_spot_prices` (hourly EUR/MWh)
+- `energy_combined_hourly` (joined hourly view)
+- `energy_combined_5min` (joined 5-minute view)
 
 ## Inspect Data Locally
 
 ```bash
 sqlite3 ~/energy.db ".tables"
-sqlite3 ~/energy.db "SELECT * FROM energy_readings ORDER BY timestamp DESC LIMIT 10;"
-sqlite3 ~/energy.db "SELECT * FROM energy_hourly ORDER BY hour_start DESC LIMIT 10;"
+sqlite3 ~/energy.db "SELECT * FROM energy_hourly ORDER BY timestamp DESC LIMIT 10;"
+sqlite3 ~/energy.db "SELECT * FROM apsystems_readings ORDER BY timestamp DESC LIMIT 10;"
+sqlite3 ~/energy.db "SELECT * FROM epex_spot_prices ORDER BY timestamp DESC LIMIT 10;"
+sqlite3 ~/energy.db "SELECT * FROM energy_combined_hourly ORDER BY hour_ts DESC LIMIT 24;"
+sqlite3 ~/energy.db "SELECT * FROM energy_combined_5min ORDER BY five_min_ts DESC LIMIT 24;"
 ```
 
 ## Deploy on Raspberry Pi (systemd)
 
-Copy units:
+### 5-minute P1 collection
 
 ```bash
 sudo cp deploy/energy-analytics.service /etc/systemd/system/
 sudo cp deploy/energy-analytics.timer /etc/systemd/system/
-sudo systemctl daemon-reload
 ```
 
-Enable timer:
+### Daily APSystems + EPEX collection
 
 ```bash
-sudo systemctl enable --now energy-analytics.timer
+sudo cp deploy/daily-collection.service /etc/systemd/system/
+sudo cp deploy/daily-collection.timer /etc/systemd/system/
 ```
 
-Check status and logs:
+Reload and enable:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now energy-analytics.timer
+sudo systemctl enable --now daily-collection.timer
+```
+
+Check status/logs:
 
 ```bash
 systemctl status energy-analytics.timer
-systemctl status energy-analytics.service
+systemctl status daily-collection.timer
 journalctl -u energy-analytics.service -f
+journalctl -u daily-collection.service -f
 ```
 
 Important:
 
-- Update environment values in the service file before enabling.
-- The provided service uses user/path values that may need to be changed for your Pi setup.
-
-## Copy Data From RPi To PC (No API Needed)
-
-Safe snapshot on Pi:
-
-```bash
-sqlite3 /home/pi/energy.db ".backup /home/pi/energy_export.db"
-```
-
-Copy to PC:
-
-```bash
-scp pi@<rpi-ip>:/home/pi/energy_export.db .
-```
+- Update environment values in both service files before enabling.
+- Adjust `User`, `WorkingDirectory`, and virtualenv path for your Pi setup.
 
 ## Troubleshooting
 
-### uv run python -m src.main exits with code 1
+### `uv run python -m src.main` exits with code 1
 
 Most common causes:
 
-- Missing HOMEWIZARD_HOST
-- Missing HOMEWIZARD_DEVICE_ID
-- HomeWizard device not reachable
+- Missing `HOMEWIZARD_HOST`
+- Missing `HOMEWIZARD_DEVICE_ID`
+- HomeWizard device unreachable
+
+### `uv run python -m src.main_daily` exits with code 1
+
+Most common causes:
+
+- Missing one of `APSYSTEMS_*` variables
+- Missing `PARSE_API_KEY`
+- APSystems/EPEX API unavailable or credentials invalid
 
 ### Tests pass, but no real data yet
 
-This is normal without a configured P1 meter. Tests validate app logic with mocks.
-
-## Next Steps
-
-1. Add a synthetic data collector mode for development without hardware.
-2. Add FastAPI read endpoints for dashboard integration.
-3. Add APSystems collector using the same collector interface.
+Normal when hardware/API keys are not configured. Tests validate logic with mocks.

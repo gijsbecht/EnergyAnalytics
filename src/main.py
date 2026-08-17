@@ -1,6 +1,6 @@
 """Entry point for the energy data collection service.
 
-Designed to be invoked by a systemd timer every 15 minutes:
+Designed to be invoked by a systemd timer every 5 minutes:
 
     uv run python -m src.main
 

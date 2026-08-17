@@ -49,17 +49,17 @@ class P1Reading(EnergyReading):
 
 
 class APSystemsReading(EnergyReading):
-    """APSystems solar inverter hourly energy reading.
+    """APSystems solar inverter interval energy reading.
 
-    One reading per hour of the day, fetched in a single daily API call.
+    One reading per interval of the day, fetched in a single daily API call.
     source_id is always 'apsystems'.
-    active_power_w represents average watts for the hour (energy_kwh * 1000).
+    active_power_w represents average watts for the interval.
     """
 
     source_id: str = "apsystems"
 
-    # Hourly solar energy production in kWh
-    energy_kwh: float = Field(description="Solar energy produced during this hour in kWh")
+    # Solar energy production for this interval in kWh
+    energy_kwh: float = Field(description="Solar energy produced during this interval in kWh")
 
 
 class EPEXSpotReading(BaseModel):

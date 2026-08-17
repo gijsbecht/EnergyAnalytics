@@ -4,6 +4,7 @@ import hmac
 import logging
 import uuid
 from datetime import date, datetime
+import re
 from time import time
 
 import requests
@@ -17,9 +18,9 @@ _SIGNATURE_METHOD = "HmacSHA256"
 
 
 class APSystemsCollector:
-    """Fetches hourly solar energy data from the APSystems EMA API.
+    """Fetches 5-minute solar energy data from the APSystems EMA API.
 
-    One API call returns all 24 hourly readings for a given day.
+    One API call returns all available 5-minute readings for a given day.
     Does not extend CollectorBase because the fetch pattern is fundamentally
     different: a single request yields a list of readings rather than one.
     """
@@ -38,9 +39,9 @@ class APSystemsCollector:
     # ------------------------------------------------------------------
 
     def fetch_day(self, target_date: date) -> list[APSystemsReading]:
-        """Fetch all 24 hourly energy readings for *target_date* (local time).
+        """Fetch all 5-minute energy readings for *target_date* (local time).
 
-        Returns a list of 24 APSystemsReading objects, one per hour (00–23).
+        Returns one APSystemsReading object per returned 5-minute timestamp.
         Hours with no production (e.g. nighttime) are included with energy_kwh=0.
 
         Raises:
@@ -55,7 +56,7 @@ class APSystemsCollector:
             response = requests.get(
                 url,
                 headers=self._build_headers(path),
-                params={"energy_level": "hourly", "date_range": date_str},
+                params={"energy_level": "minutely", "date_range": date_str},
                 timeout=self._timeout_s,
             )
             response.raise_for_status()
@@ -66,29 +67,46 @@ class APSystemsCollector:
         if payload.get("code") != 0:
             raise ValueError(f"APSystems API error code {payload.get('code')}: {payload}")
 
-        raw_data: list = payload.get("data", [])
-        if len(raw_data) != 24:
-            raise ValueError(f"Expected 24 hourly values, got {len(raw_data)}: {raw_data}")
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected payload.data object, got: {data}")
+
+        raw_times = data.get("time")
+        raw_energy = data.get("energy")
+        raw_power = data.get("power")
+        if not isinstance(raw_times, list) or not isinstance(raw_energy, list) or not isinstance(raw_power, list):
+            raise ValueError("Expected payload.data.time, payload.data.energy, and payload.data.power lists")
+        if not raw_times:
+            raise ValueError("Expected at least one minutely value, got 0")
+        if len(raw_times) != len(raw_energy) or len(raw_times) != len(raw_power):
+            raise ValueError(
+                "Expected equal number of time, energy, and power values, got "
+                f"{len(raw_times)}, {len(raw_energy)}, and {len(raw_power)}"
+            )
 
         readings: list[APSystemsReading] = []
-        for hour, value in enumerate(raw_data):
-            energy_kwh = float(value)
-            # Construct a local-time datetime for the start of this hour, then
-            # attach the local timezone so .timestamp() converts to UTC correctly.
+        for time_label, energy_value, power_value in zip(raw_times, raw_energy, raw_power, strict=True):
+            if not isinstance(time_label, str) or not re.fullmatch(r"\d{2}:\d{2}", time_label):
+                raise ValueError(f"Invalid time entry '{time_label}', expected HH:MM")
+            hour, minute = map(int, time_label.split(":"))
+            if hour > 23 or minute > 59:
+                raise ValueError(f"Invalid time entry '{time_label}', out of range")
+            energy_kwh = float(energy_value)
+            active_power_w = float(power_value)
             ts = datetime(
-                target_date.year, target_date.month, target_date.day, hour, 0, 0
+                target_date.year, target_date.month, target_date.day, hour, minute, 0
             ).astimezone()
             readings.append(
                 APSystemsReading(
                     device_id=self._ecu_id,
                     timestamp=ts,
                     energy_kwh=energy_kwh,
-                    active_power_w=energy_kwh * 1000.0,
+                    active_power_w=active_power_w,
                 )
             )
 
         logger.info(
-            "Fetched %d hourly readings for %s – total %.3f kWh",
+            "Fetched %d minutely readings for %s - total %.3f kWh",
             len(readings),
             date_str,
             sum(r.energy_kwh for r in readings),

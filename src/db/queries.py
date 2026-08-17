@@ -96,7 +96,7 @@ def get_daily_summary(db_path: Path, source_id: str, year: int, month: int) -> l
 
 
 def insert_apsystems_readings(db_path: Path, readings: list[APSystemsReading]) -> None:
-    """Batch-insert hourly APSystems readings. Duplicate timestamps are silently ignored."""
+    """Batch-insert APSystems interval readings. Duplicate timestamps are silently ignored."""
     if not readings:
         return
     conn = sqlite3.connect(db_path)

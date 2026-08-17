@@ -187,13 +187,12 @@ class TestHomeWizardP1Collector:
 
 _VALID_APSYSTEMS_RESPONSE = {
     "code": 0,
-    "data": [
-        "0", "0", "0", "0", "0", "0", "0.00",
-        "0.08", "0.33", "0.50", "0.20", "0.31",
-        "0.53", "0.73", "1.10", "0.45", "0.93",
-        "1.40", "0.94", "0.30", "0.08", "0.00",
-        "0", "0",
-    ],
+    "data": {
+        "today": "7.91",
+        "time": ["10:00", "10:05", "10:10", "10:15", "10:20", "10:25"],
+        "power": [0, 620, 700, 550, 480, 0],
+        "energy": ["0.00", "0.05", "0.06", "0.05", "0.04", "0.00"],
+    },
 }
 
 _TARGET_DATE = date(2026, 7, 26)
@@ -210,7 +209,7 @@ def apsystems_collector() -> APSystemsCollector:
 
 
 class TestAPSystemsCollector:
-    def test_returns_24_readings(self, apsystems_collector):
+    def test_returns_all_minutely_readings(self, apsystems_collector):
         mock_response = MagicMock()
         mock_response.json.return_value = _VALID_APSYSTEMS_RESPONSE
         mock_response.raise_for_status = MagicMock()
@@ -218,7 +217,7 @@ class TestAPSystemsCollector:
         with patch("src.collectors.apsystems.requests.get", return_value=mock_response):
             readings = apsystems_collector.fetch_day(_TARGET_DATE)
 
-        assert len(readings) == 24
+        assert len(readings) == 6
 
     def test_source_id_is_apsystems(self, apsystems_collector):
         mock_response = MagicMock()
@@ -248,8 +247,8 @@ class TestAPSystemsCollector:
         with patch("src.collectors.apsystems.requests.get", return_value=mock_response):
             readings = apsystems_collector.fetch_day(_TARGET_DATE)
 
-        assert readings[7].energy_kwh == pytest.approx(0.08)
-        assert readings[17].energy_kwh == pytest.approx(1.40)
+        assert readings[1].energy_kwh == pytest.approx(0.05)
+        assert readings[2].energy_kwh == pytest.approx(0.06)
 
     def test_active_power_w_derived_from_energy_kwh(self, apsystems_collector):
         mock_response = MagicMock()
@@ -259,9 +258,9 @@ class TestAPSystemsCollector:
         with patch("src.collectors.apsystems.requests.get", return_value=mock_response):
             readings = apsystems_collector.fetch_day(_TARGET_DATE)
 
-        assert readings[14].active_power_w == pytest.approx(readings[14].energy_kwh * 1000.0)
+        assert readings[2].active_power_w == pytest.approx(700.0)
 
-    def test_timestamps_correspond_to_correct_hours(self, apsystems_collector):
+    def test_timestamps_come_from_time_entries(self, apsystems_collector):
         mock_response = MagicMock()
         mock_response.json.return_value = _VALID_APSYSTEMS_RESPONSE
         mock_response.raise_for_status = MagicMock()
@@ -269,9 +268,11 @@ class TestAPSystemsCollector:
         with patch("src.collectors.apsystems.requests.get", return_value=mock_response):
             readings = apsystems_collector.fetch_day(_TARGET_DATE)
 
-        for hour, reading in enumerate(readings):
-            assert reading.timestamp.hour == hour
-            assert reading.timestamp.date() == _TARGET_DATE
+        assert readings[0].timestamp.hour == 10
+        assert readings[0].timestamp.minute == 0
+        assert readings[1].timestamp.hour == 10
+        assert readings[1].timestamp.minute == 5
+        assert all(r.timestamp.date() == _TARGET_DATE for r in readings)
 
     def test_non_zero_api_code_raises_value_error(self, apsystems_collector):
         mock_response = MagicMock()
@@ -282,13 +283,36 @@ class TestAPSystemsCollector:
             with pytest.raises(ValueError, match="APSystems API error code"):
                 apsystems_collector.fetch_day(_TARGET_DATE)
 
-    def test_wrong_data_length_raises_value_error(self, apsystems_collector):
+    def test_misaligned_time_and_energy_raises_value_error(self, apsystems_collector):
         mock_response = MagicMock()
-        mock_response.json.return_value = {"code": 0, "data": ["0.5"] * 12}
+        mock_response.json.return_value = {
+            "code": 0,
+            "data": {
+                "time": ["10:00", "10:05"],
+                "energy": ["0.04"],
+                "power": [500, 600],
+            },
+        }
         mock_response.raise_for_status = MagicMock()
 
         with patch("src.collectors.apsystems.requests.get", return_value=mock_response):
-            with pytest.raises(ValueError, match="Expected 24 hourly values"):
+            with pytest.raises(ValueError, match="Expected equal number of time, energy, and power values"):
+                apsystems_collector.fetch_day(_TARGET_DATE)
+
+    def test_invalid_time_entry_raises_value_error(self, apsystems_collector):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "code": 0,
+            "data": {
+                "time": ["10:00", "bad"],
+                "energy": ["0.04", "0.05"],
+                "power": [500, 600],
+            },
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("src.collectors.apsystems.requests.get", return_value=mock_response):
+            with pytest.raises(ValueError, match="Invalid time entry"):
                 apsystems_collector.fetch_day(_TARGET_DATE)
 
     def test_http_error_raises_connection_error(self, apsystems_collector):
@@ -310,7 +334,7 @@ class TestAPSystemsCollector:
             readings = apsystems_collector.fetch_day(_TARGET_DATE)
 
         assert readings[0].energy_kwh == 0.0
-        assert readings[23].energy_kwh == 0.0
+        assert readings[-1].energy_kwh == 0.0
 
 
 _VALID_EPEX_RESPONSE = {

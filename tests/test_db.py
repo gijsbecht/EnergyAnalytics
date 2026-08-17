@@ -94,6 +94,15 @@ class TestInitDb:
         assert "energy_combined_hourly" in views
         conn.close()
 
+    def test_creates_energy_combined_5min_view(self, db_path):
+        conn = sqlite3.connect(db_path)
+        views = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='view'").fetchall()
+        }
+        assert "energy_combined_5min" in views
+        conn.close()
+
     def test_no_cleanup_trigger_exists(self, db_path):
         conn = sqlite3.connect(db_path)
         triggers = {
@@ -197,7 +206,19 @@ def _make_apsystems_reading(hour: int = 10, energy_kwh: float = 1.23) -> APSyste
         device_id="test-ecu",
         timestamp=ts,
         energy_kwh=energy_kwh,
-        active_power_w=energy_kwh * 1000.0,
+        active_power_w=energy_kwh * 12000.0,
+    )
+
+
+def _make_apsystems_reading_5min(
+    hour: int = 10, minute: int = 5, energy_kwh: float = 0.08
+) -> APSystemsReading:
+    ts = datetime(2026, 7, 22, hour, minute, 0, tzinfo=UTC)
+    return APSystemsReading(
+        device_id="test-ecu",
+        timestamp=ts,
+        energy_kwh=energy_kwh,
+        active_power_w=energy_kwh * 12000.0,
     )
 
 
@@ -263,6 +284,31 @@ class TestInsertAPSystemsReadings:
         assert row[0] == 500.0
         assert row[1] == pytest.approx(0.75)
         assert row[2] == pytest.approx(99.9)
+        conn.close()
+
+    def test_combined_5min_view_joins_p1_solar_and_epex(self, db_path):
+        # P1 at 10:04 maps to 10:05 nearest 5-minute bucket.
+        ts_p1 = datetime(2026, 7, 22, 10, 4, 0, tzinfo=UTC)
+        insert_p1_reading(db_path, _make_reading(power_w=640.0, ts=ts_p1))
+
+        # APSystems row at 10:05 joins directly by timestamp.
+        insert_apsystems_readings(
+            db_path, [_make_apsystems_reading_5min(hour=10, minute=5, energy_kwh=0.08)]
+        )
+
+        # EPEX remains hourly and should join via hour bucket.
+        insert_epex_readings(db_path, [_make_epex_reading(hour=10, price_eur_mwh=77.7)])
+
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT five_min_ts, active_power_w, solar_energy_kwh, epex_price_eur_mwh "
+            "FROM energy_combined_5min"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == int(datetime(2026, 7, 22, 10, 5, 0, tzinfo=UTC).timestamp())
+        assert row[1] == pytest.approx(640.0)
+        assert row[2] == pytest.approx(0.08)
+        assert row[3] == pytest.approx(77.7)
         conn.close()
 
 
