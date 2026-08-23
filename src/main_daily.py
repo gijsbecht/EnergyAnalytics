@@ -36,7 +36,7 @@ def collect_daily() -> None:
     insert_apsystems_readings(aps_config.db_path, aps_readings)
 
     epex_collector = EPEXCollector(
-        api_key=epex_config.parse_api_key,
+        eu_energy_token=epex_config.eu_energy_token,
         timeout_s=epex_config.timeout_s,
     )
     epex_readings = epex_collector.fetch_day(target_date)

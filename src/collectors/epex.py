@@ -1,40 +1,32 @@
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 
 import requests
 
 from src.models.readings import EPEXSpotReading
 
-_EPEX_ENDPOINT = (
-    "https://api.parse.bot/scraper/"
-    "f4c30fc5-0c2a-4b85-8bbe-e3ddda5e8775/get_market_results"
-)
+_EPEX_ENDPOINT = "https://euenergy.live/api/v1/prices"
 
 
 class EPEXCollector:
     """Fetches EPEX NL day-ahead hourly spot prices."""
 
-    def __init__(self, api_key: str, timeout_s: float = 10.0) -> None:
-        self._api_key = api_key
+    def __init__(self, eu_energy_token: str, timeout_s: float = 10.0) -> None:
+        self._eu_energy_token = eu_energy_token
         self._timeout_s = timeout_s
 
     def fetch_day(self, delivery_date: date) -> list[EPEXSpotReading]:
         """Fetch all hourly EPEX prices for a delivery date.
 
-        The API payload includes both `datetime` and `timestamp_ms` fields. We use
-        `timestamp_ms` as the source of truth because it is unambiguous UTC epoch
-        time and avoids timezone parsing issues.
+        Prices are requested for a single day in the NL zone.
         """
         try:
             response = requests.get(
                 _EPEX_ENDPOINT,
-                headers={"X-API-Key": self._api_key},
+                headers={"Authorization": f"Bearer {self._eu_energy_token}"},
                 params={
-                    "auction": "MRC",
-                    "product": "60",
-                    "modality": "Auction",
-                    "market_area": "NL",
-                    "sub_modality": "DayAhead",
-                    "delivery_date": delivery_date.isoformat(),
+                    "from": delivery_date.isoformat(),
+                    "to": delivery_date.isoformat(),
+                    "zone": "NL",
                 },
                 timeout=self._timeout_s,
             )
@@ -43,25 +35,28 @@ class EPEXCollector:
             raise ConnectionError(f"EPEX API request failed: {exc}") from exc
 
         payload = response.json()
-        if payload.get("status") != "success":
-            raise ValueError(f"EPEX API error: {payload}")
+        hours = payload.get("hours")
+        if not isinstance(hours, list):
+            raise ValueError(f"Invalid EPEX API payload: {payload}")
 
-        data = payload.get("data", {})
-        results = data.get("results", [])
         payload_delivery_date = date.fromisoformat(
-            data.get("delivery_date", delivery_date.isoformat())
+            payload.get("from", delivery_date.isoformat())
         )
 
         readings: list[EPEXSpotReading] = []
-        for result in results:
-            ts_s = int(result["timestamp_ms"] / 1000)
-            timestamp = datetime.fromtimestamp(ts_s, tz=UTC).astimezone()
+        for hour in hours:
+            ts_raw = hour.get("ts")
+            price_raw = hour.get("price")
+            if ts_raw is None or price_raw is None:
+                raise ValueError(f"Invalid EPEX API payload row: {hour}")
+
+            timestamp = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).astimezone()
             readings.append(
                 EPEXSpotReading(
                     timestamp=timestamp,
                     delivery_date=payload_delivery_date,
-                    price_eur_mwh=float(result["price"]),
-                    volume_total=result.get("volume_total"),
+                    price_eur_mwh=float(price_raw),
+                    volume_total=None,
                 )
             )
 

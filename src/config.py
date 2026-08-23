@@ -39,8 +39,8 @@ class APSystemsConfig:
 
 @dataclass(frozen=True)
 class EPEXConfig:
-    # API key for parse.bot endpoint
-    parse_api_key: str
+    # API token for euenergy.live endpoint
+    eu_energy_token: str
 
     # Path to the SQLite database file
     db_path: Path
@@ -143,7 +143,7 @@ def load_epex_config(env_file: Path | None = None) -> EPEXConfig:
     """Load EPEX spot pricing configuration from environment variables.
 
     Required environment variables:
-        PARSE_API_KEY          API key for parse.bot endpoint
+        EU_ENERGY_TOKEN        API token for euenergy.live endpoint
 
     Optional environment variables:
         DB_PATH                Path to the SQLite database (default: ~/energy.db)
@@ -154,15 +154,15 @@ def load_epex_config(env_file: Path | None = None) -> EPEXConfig:
 
     load_dotenv(dotenv_path=env_file, override=False)
 
-    api_key = os.environ.get("PARSE_API_KEY")
-    if not api_key:
-        raise RuntimeError("Missing required environment variable: PARSE_API_KEY")
+    token = os.environ.get("EU_ENERGY_TOKEN")
+    if not token:
+        raise RuntimeError("Missing required environment variable: EU_ENERGY_TOKEN")
 
     db_path = Path(os.environ.get("DB_PATH", Path.home() / "energy.db"))
     timeout = float(os.environ.get("EPEX_TIMEOUT", "10"))
 
     return EPEXConfig(
-        parse_api_key=api_key,
+        eu_energy_token=token,
         db_path=db_path,
         timeout_s=timeout,
     )

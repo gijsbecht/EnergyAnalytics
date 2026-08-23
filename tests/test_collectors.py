@@ -338,30 +338,29 @@ class TestAPSystemsCollector:
 
 
 _VALID_EPEX_RESPONSE = {
-    "status": "success",
-    "data": {
-        "delivery_date": "2026-07-28",
-        "results": [
-            {
-                "timestamp_ms": 1785189600000,
-                "datetime": "2026-07-27T22:00:00",
-                "price": 161.08,
-                "volume_total": None,
-            },
-            {
-                "timestamp_ms": 1785193200000,
-                "datetime": "2026-07-27T23:00:00",
-                "price": 148.57,
-                "volume_total": None,
-            },
-        ],
-    },
+    "zone": "NL",
+    "country": "NL",
+    "unit": "EUR/MWh",
+    "from": "2026-07-28",
+    "to": "2026-07-28",
+    "hours": [
+        {
+            "ts": "2026-07-27T22:00:00.000Z",
+            "price": 161.08,
+            "currency": "EUR",
+        },
+        {
+            "ts": "2026-07-27T23:00:00.000Z",
+            "price": 148.57,
+            "currency": "EUR",
+        },
+    ],
 }
 
 
 @pytest.fixture
 def epex_collector() -> EPEXCollector:
-    return EPEXCollector(api_key="parse_test_key")
+    return EPEXCollector(eu_energy_token="eu_test_token")
 
 
 class TestEPEXCollector:
@@ -376,7 +375,7 @@ class TestEPEXCollector:
         assert len(readings) == 2
         assert readings[0].price_eur_mwh == pytest.approx(161.08)
 
-    def test_timestamp_uses_timestamp_ms(self, epex_collector):
+    def test_timestamp_uses_utc_ts_field(self, epex_collector):
         mock_response = MagicMock()
         mock_response.json.return_value = _VALID_EPEX_RESPONSE
         mock_response.raise_for_status = MagicMock()
@@ -387,13 +386,13 @@ class TestEPEXCollector:
         assert int(readings[0].timestamp.timestamp()) == 1785189600
         assert int(readings[1].timestamp.timestamp()) == 1785193200
 
-    def test_non_success_status_raises_value_error(self, epex_collector):
+    def test_missing_hours_raises_value_error(self, epex_collector):
         mock_response = MagicMock()
-        mock_response.json.return_value = {"status": "error", "message": "bad request"}
+        mock_response.json.return_value = {"error": "bad request"}
         mock_response.raise_for_status = MagicMock()
 
         with patch("src.collectors.epex.requests.get", return_value=mock_response):
-            with pytest.raises(ValueError, match="EPEX API error"):
+            with pytest.raises(ValueError, match="Invalid EPEX API payload"):
                 epex_collector.fetch_day(date(2026, 7, 28))
 
     def test_http_error_raises_connection_error(self, epex_collector):

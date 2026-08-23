@@ -107,7 +107,7 @@ Required:
 - `APSYSTEMS_APP_SECRET`
 - `APSYSTEMS_SID`
 - `APSYSTEMS_ECU_ID`
-- `PARSE_API_KEY`
+- `EU_ENERGY_TOKEN`
 
 Optional:
 
@@ -131,15 +131,14 @@ uv run python -m src.main_daily
 
 ## Timezone Notes (Important)
 
-EPEX responses include both `datetime` and `timestamp_ms` fields. The
-implementation uses `timestamp_ms` as source of truth to avoid timezone
-ambiguity in the string field.
+EPEX responses from euenergy.live include `ts` as an ISO-8601 UTC timestamp.
+The implementation uses this `ts` field as source of truth.
 
 Example for NL/CEST delivery day:
 
 - `2026-07-27T22:00:00` UTC corresponds to local `2026-07-28 00:00`
 
-Using epoch timestamps ensures correct joins across both hourly and 5-minute data layers.
+Using UTC timestamps ensures correct joins across both hourly and 5-minute data layers.
 
 ## Database Notes
 
@@ -221,7 +220,7 @@ Most common causes:
 Most common causes:
 
 - Missing one of `APSYSTEMS_*` variables
-- Missing `PARSE_API_KEY`
+- Missing `EU_ENERGY_TOKEN`
 - APSystems/EPEX API unavailable or credentials invalid
 
 ### Tests pass, but no real data yet
