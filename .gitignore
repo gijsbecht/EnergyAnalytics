@@ -218,3 +218,11 @@ __marimo__/
 .streamlit/secrets.toml
 
 **.local**
+
+# Explicit local secret/data ignores
+.env.local
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+analysis/*.csv
