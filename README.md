@@ -117,17 +117,6 @@ Daily APSystems + EPEX run:
 uv run python -m src.main_daily
 ```
 
-## Timezone Notes (Important)
-
-EPEX responses from euenergy.live include `ts` as an ISO-8601 UTC timestamp.
-The implementation uses this `ts` field as source of truth.
-
-Example for NL/CEST delivery day:
-
-- `2026-07-27T22:00:00` UTC corresponds to local `2026-07-28 00:00`
-
-Using UTC timestamps ensures correct joins across both hourly and 5-minute data layers.
-
 ## Database Notes
 
 - SQLite database file is local (default: `~/energy.db`)
@@ -220,25 +209,3 @@ Important:
 
 - Update environment values in both service files before enabling.
 - Adjust `User`, `WorkingDirectory`, and virtualenv path for your Pi setup.
-
-## Troubleshooting
-
-### `uv run python -m src.main` exits with code 1
-
-Most common causes:
-
-- Missing `HOMEWIZARD_HOST`
-- Missing `HOMEWIZARD_DEVICE_ID`
-- HomeWizard device unreachable
-
-### `uv run python -m src.main_daily` exits with code 1
-
-Most common causes:
-
-- Missing one of `APSYSTEMS_*` variables
-- Missing `EU_ENERGY_TOKEN`
-- APSystems/EPEX API unavailable or credentials invalid
-
-### Tests pass, but no real data yet
-
-Normal when hardware/API keys are not configured. Tests validate logic with mocks.
