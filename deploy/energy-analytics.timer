@@ -3,9 +3,9 @@ Description=Energy Analytics – run every 5 minutes
 Requires=energy-analytics.service
 
 [Timer]
-# Run 5 minutes after boot, then every 5 minutes
-OnBootSec=5min
-OnUnitActiveSec=5min
+# Run every 5 minutes, aligned to the clock (e.g. 7:00, 7:05, 7:10, ...)
+OnCalendar=*:0/5
+AccuracySec=1s
 
 # If a run was missed (e.g. RPi was off), run immediately on next boot
 Persistent=true
