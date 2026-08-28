@@ -1,8 +1,8 @@
 # Energy Analytics Hub
 
-Lightweight energy data collector for Raspberry Pi Zero 2W.
+Home energy data collection and analysis platform, running on a Raspberry Pi Zero 2W.
 
-The project currently collects three data layers into SQLite:
+The goal is to calculate potential cost savings on the energy bill from installing a home battery. By optimising battery charge/discharge scheduling against measured solar production, home energy consumption, and EPEX day-ahead spot prices, the analysis shows how much could be saved compared to the actual measured costs. To support that, the project continuously collects three data layers into SQLite:
 
 - HomeWizard P1 meter telemetry (high-frequency point readings)
 - APSystems 5-minute solar energy (daily batch for previous day)
@@ -17,26 +17,14 @@ The project currently collects three data layers into SQLite:
 - requests (HTTP clients)
 - pytest + pytest-cov
 - Ruff (lint + formatting)
-
-## Current Status
-
-Implemented:
-
-- Collector foundation and HomeWizard P1 collector with retry + circuit breaker
-- APSystems collector with HMAC-signed API requests
-- EPEX collector for NL day-ahead spot pricing
-- SQLite schema initialization with versioning
-- `energy_readings` raw P1 table + `energy_hourly` view
-- `apsystems_readings` 5-minute solar table
-- `epex_spot_prices` hourly pricing table
-- `energy_combined_hourly` view joining P1 + APSystems + EPEX by hour
-- `energy_combined_5min` view joining P1 + APSystems + EPEX on 5-minute buckets
-- systemd units for 5-minute P1 collection and daily batch collection
-- Full automated test suite with mocked external APIs
+- PyPSA (battery dispatch optimisation, analysis only)
+- pandas + NumPy + matplotlib (analysis only)
 
 ## Project Layout
 
 ```text
+analysis/
+	battery_optimization.py   # PyPSA battery dispatch optimisation
 src/
 	collectors/
 		base.py
@@ -155,6 +143,34 @@ Main structures:
 - `epex_spot_prices` (hourly EUR/MWh)
 - `energy_combined_hourly` (joined hourly view)
 - `energy_combined_5min` (joined 5-minute view)
+
+## Analysis Scripts
+
+One-off analysis scripts live in `analysis/`. They are not part of the
+collection runtime and are intended to be run manually on an exported CSV.
+
+### Battery dispatch optimisation (`analysis/battery_optimization.py`)
+
+Uses [PyPSA](https://pypsa.org/) and the HiGHS solver to find the optimal
+battery charge/discharge schedule over a date range, given measured solar
+production, home load, and EPEX spot prices.
+
+Export data first:
+
+```bash
+sqlite3 ~/energy.db ".headers on" ".mode csv" \
+    "SELECT * FROM energy_combined_5min ORDER BY five_min_ts;" \
+    > energy_combined_5min.csv
+```
+
+Then run:
+
+```bash
+uv run python analysis/battery_optimization.py
+```
+
+Outputs: cost summary vs measured/model baselines, and a four-panel matplotlib
+plot (solar + load, grid flows, battery SoC, EPEX price).
 
 ## Inspect Data Locally
 
