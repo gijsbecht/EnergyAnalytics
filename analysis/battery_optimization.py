@@ -7,7 +7,7 @@ import pypsa
 
 from utils import show_interactive_lines
 
-CSV_PATH = './energy_combined_5min.csv'
+CSV_PATH = './analysis/energy_combined_5min.csv'
 START_DATE = '2026-08-18'
 END_DATE = '2026-08-22'
 
@@ -46,9 +46,11 @@ df['delta_power_import_kwh'] = df['delta_power_import_kwh'].fillna(0)
 df['delta_power_export_kwh'] = df['delta_power_export_kwh'].fillna(0)
 df['delta_power_total_kwh'] = df['delta_power_total_kwh'].fillna(0)
 df['solar_energy_kwh'] = df['solar_energy_kwh'].fillna(0).clip(lower=0)
+
+# Since delta_power_total is import - export, the actual power consuption is delta_power_total + solar_energy 
+# (i.e. the total energy used by the house, including solar self-consumption).
 df['power_usage_kwh'] = df['delta_power_total_kwh'] + df['solar_energy_kwh']
 df['power_usage_kwh'] = df['power_usage_kwh'].clip(lower=0)
-df = df.dropna(subset=['epex_price_eur_mwh'])
 
 # Interactive plot: delta power import/export and total usage
 # show_interactive_lines(
@@ -98,6 +100,7 @@ n.snapshot_weightings.loc[:, 'generators'] = DT_HOURS
 
 n.add("Bus", "home")
 
+# Add generator (solar PV)
 n.add(
     "Generator",
     "solar",
@@ -107,6 +110,7 @@ n.add(
     marginal_cost=0.0,
 )
 
+# Add load (home consumption)
 n.add(
     "Load",
     "home_load",
@@ -114,6 +118,7 @@ n.add(
     p_set=df['load_power_kw'],
 )
 
+# Add storage unit (battery)
 n.add(
     "StorageUnit",
     "battery",
@@ -127,6 +132,7 @@ n.add(
 )
 
 # Grid import: spot price + network tariff + 21% VAT
+# Needed if the solar + battery system cannot meet the home load, or if it is cheaper to import than to discharge the battery.
 n.add(
     "Generator",
     "grid_import",
@@ -137,6 +143,7 @@ n.add(
 )
 
 # Grid export (solar only — enforced by custom constraint): revenue at spot price
+# plug-in home battery may not export to the grid, only solar can.
 n.add(
     "Generator",
     "grid_export",
@@ -191,14 +198,6 @@ base_measured_cost = (
     - (base_measured_export_p * df['epex_eur_kwh']).sum()
 )
 
-# Baseline B: model-consistent no-battery baseline from 5-minute net flows
-base_model_import_p = (df['power_usage_kwh'] - df['solar_energy_kwh']).clip(lower=0)
-base_model_export_p = (df['solar_energy_kwh'] - df['power_usage_kwh']).clip(lower=0)
-base_model_cost = (
-    (base_model_import_p * df['import_cost_eur_kwh']).sum()
-    - (base_model_export_p * df['epex_eur_kwh']).sum()
-)
-
 print(f"\n{'='*50}")
 print(f"  Grid import : {total_import_kwh:>10.1f} kWh")
 print(f"  Grid export : {total_export_kwh:>10.1f} kWh")
@@ -207,8 +206,6 @@ print(f"  Export rev  : €{total_export_rev:>9.2f}")
 print(f"  Net cost    : €{net_cost:>9.2f}")
 print(f"  Baseline (measured) : €{base_measured_cost:>9.2f}")
 print(f"  Savings vs measured : €{base_measured_cost - net_cost:>9.2f}")
-print(f"  Baseline (model)    : €{base_model_cost:>9.2f}")
-print(f"  Savings vs model    : €{base_model_cost - net_cost:>9.2f}")
 print(f"{'='*50}\n")
 
 
